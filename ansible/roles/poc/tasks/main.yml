@@ -1,0 +1,35 @@
+- name: Update cache repos 
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Update all packages to the latest version
+  apt:
+    upgrade: dist
+
+- name: Install nginx
+  apt:
+    name: nginx
+
+- name: Open the ssh and nginx ports
+  community.general.ufw:
+    rule: allow
+    name: "{{ item }}"
+  with_items:
+    - "OpenSSH"
+    - "Nginx HTTP"
+
+- name: Add the files to ngnix path
+  copy: 
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+  with_items:
+    - { src: '{{ GITHUB_WORKSPACE }}/{{ APP_DIR }}/build/', dest: '/var/www/html' }
+  register: copy_source
+
+
+- name: Reload nginx if the html file has changes
+  systemd:
+    name: nginx.service
+    state: reloaded
+  when: copy_source.changed

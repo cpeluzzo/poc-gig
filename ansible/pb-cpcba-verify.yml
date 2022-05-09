@@ -1,0 +1,6 @@
+- name: Verify url
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - include_role:
+        name: verify_url

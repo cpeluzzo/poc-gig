@@ -1,0 +1,6 @@
+basename = "devubuntu"
+location = "francecentral"
+tag = "poc"
+kv_name  = "poctemp123"
+kv_rg = "poc"
+uservm = "azureuser"

@@ -1,0 +1,119 @@
+name: 'Poc'
+
+on: 
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform: "create" "destroy"'     
+        required: true
+        default: "create"
+
+jobs:
+  poc:
+    name: 'Poc'
+    runs-on: ubuntu-latest
+    env: # Or as an environment variable
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      AZURE_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      AZURE_TENANT: ${{ secrets.ARM_TENANT_ID }}
+      AZURE_CLOUD_ENVIRONMENT: "AzureCloud"
+      ANSIBLE_DIR: "ansible"
+      TERRAFORM_DIR: "terraform"
+      SCRIPTS_DIR: "scripts"
+      APP_DIR: "app"
+
+    # Use the Bash shell regardless whether the GitHub Actions runner is...
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v2
+    
+    # Install the latest version of Terraform CLI
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+
+    # Setup node
+    - name: Setup node
+      uses: actions/setup-node@v3
+      with:
+        node-version: 14
+      
+    # Install the pyhton libraries for ansible
+    - name: Ansible install dependencies
+      run: |
+        # Check version of ansible
+        ansible --version
+        # Install the collection of azure
+        ansible-galaxy collection install azure.azcollection:1.10.0
+        pip3 install -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements-azure.txt
+        ansible-galaxy collection install azure.azcollection:1.10.0 --force
+        # Inject dependencies into venv of ansible
+        pipx inject ansible-core msrest msrestazure azure-common
+    
+    # Run shell script
+    - name: Terraform init
+      working-directory: ${{ env.TERRAFORM_DIR }}
+      run: |
+        terraform init -backend-config="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
+          -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" \
+          -backend-config="container_name=${{ env.CONTAINER_NAME }}" -backend-config="key=${{env.KEY}}"
+      env:
+        RESOURCE_GROUP_NAME: ${{ secrets.RESOURCE_GROUP_NAME }}
+        STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+        CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+        KEY: ${{ secrets.KEY }}
+
+    - name: Terraform plan & apply
+      if: github.event.inputs.action == 'create'
+      working-directory: ${{ env.TERRAFORM_DIR }}
+      run: |
+        terraform plan -target random_id.poc -out "tfplan"
+        terraform apply "tfplan"
+        terraform plan -out "tfplan"
+        terraform apply "tfplan"
+        echo "Create the pem for connection"
+        rm -f ../${{ env.ANSIBLE_DIR }}/cert.pem && \
+          terraform output tls_private_key > ../${{ env.ANSIBLE_DIR }}/cert.pem && \
+          chmod 400 ../${{ env.ANSIBLE_DIR }}/cert.pem
+
+        # Expose the vars  
+        echo "TF_OUT_USER=$(terraform output -raw user)" >> $GITHUB_ENV
+        echo "PUBLIC_IP_VM=$(terraform output -raw ip_public_vm_linux)" >> $GITHUB_ENV
+
+    # Compile node example app
+    - name: Run Node
+      if: github.event.inputs.action == 'create'
+      working-directory: ${{ env.APP_DIR }} 
+      run: |
+        npm install && npm audit fix && npm run build 
+
+    - name: Ansible - Poc - Install nginx and example react app
+      if: github.event.inputs.action == 'create'
+      working-directory: ${{ env.ANSIBLE_DIR }}
+      run: |
+        ansible-inventory -i myazure_rm.yml --graph
+        ansible-playbook -i myazure_rm.yml pb-cpcba-poc.yml --private-key cert.pem --limit tag_Ansible_Ubuntu
+        ansible-playbook pb-cpcba-verify.yml 
+
+    - name: Verify url with shell script
+      if: github.event.inputs.action == 'create'
+      working-directory: ${{ env.SCRIPTS_DIR }}
+      run: |
+        source url_verify.sh "http://${{ env.PUBLIC_IP_VM }}"
+
+    - name: Terraform destroy
+      if: github.event.inputs.action == 'destroy'
+      working-directory: ${{ env.TERRAFORM_DIR }}
+      run: |
+        terraform destroy -auto-approve

@@ -1,0 +1,2 @@
+GITHUB_WORKSPACE: "{{ lookup('env', 'GITHUB_WORKSPACE') }}"
+APP_DIR: "{{ lookup('env', 'APP_DIR') }}"

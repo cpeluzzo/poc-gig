@@ -1,0 +1,13 @@
+- name: Set the fact
+  set_fact:
+    url_test: "{{ lookup('env', 'PUBLIC_IP_VM') }}" 
+
+- name: Connect to a given URL
+  uri:
+    url: "http://{{ url_test }}"
+  register: url
+
+- name: Print the status code
+  debug:
+    var: url.status
+

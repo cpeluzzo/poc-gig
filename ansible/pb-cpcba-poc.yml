@@ -1,0 +1,7 @@
+- name: Poc in remote machine
+  hosts: "*"
+  vars:
+    ansible_user: "{{ lookup('env', 'TF_OUT_USER') }}"
+  roles:
+    - { role: poc, become: yes }
+
